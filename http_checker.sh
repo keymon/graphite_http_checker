@@ -1,11 +1,32 @@
 #!/bin/sh
 
+# TODO: 
+# - close descriptor if needed
+# - retry connect if connection to graphite drops? or exit
+# 
+
 WORKING_DIR=/tmp/http_checker
 CONFIG_FILE=./config
 GRAPHITE_PREFIX="http_tester"
+GRAPHITE_HOST=localhost
+GRAPHITE_PORT=2003
 
+# IMPORTANT, METRIC_FREQUENCY should be more than TIMEOUT
+METRIC_FREQUENCY=60
 TIMEOUT=30
 
+# Magic function... it just opens a TCP connection to graphite in descriptor 3
+connect_graphite() {
+	exec 3<>/dev/tcp/$GRAPHITE_HOST/$GRAPHITE_PORT
+}
+
+# Send the metrics to descriptor 3
+send_metric() {
+	#echo "local.random.diceroll 4 `date +%s`" | nc -q0 ${SERVER} ${PORT}
+	echo "$GRAPHITE_PREFIX.$1 $2 `date +%s`" | tee /tmp/debug >&3
+}
+
+# Main checker
 check_url() {
 	id=$1; shift
 	url=$1; shift
@@ -45,26 +66,30 @@ check_url() {
 	age=$(test -e $WORKING_DIR/$id.headers && cat $WORKING_DIR/$id.headers | sed -n 's/^Age: \([0-9\.]*\).*/\1/p')
 	age=${age:-0}
 
-	echo "$GRAPHITE_PREFIX.$id.page_fetched $page_fetched"
-	echo "$GRAPHITE_PREFIX.$id.string_matched $string_matched"
-	echo "$GRAPHITE_PREFIX.$id.succeded $succeded"
-	echo "$GRAPHITE_PREFIX.$id.total_time $total_time"
-	echo "$GRAPHITE_PREFIX.$id.a_entries $a_entries"
-	echo "$GRAPHITE_PREFIX.$id.age $age"
+	send_metric $id.page_fetched $page_fetched
+	send_metric $id.string_matched $string_matched
+	send_metric $id.succeded $succeded
+	send_metric $id.total_time $total_time
+	send_metric $id.a_entries $a_entries
+	send_metric $id.age $age
 
 }
 
-#check_url datasift_main http://localhost:8080 "View live example streams to see how DataSift"
-#check_url datasift_main http://datasift.com "View live example streams to see how DataSift"
-#check_url datasift_main http://datasift.com "SNA enables Dell to monitor"
-#mkdir -p $WORKING_DIR
+mkdir -p $WORKING_DIR
 
+# Start the connection to graphite
+connect_graphite
+
+# Loop endless
 while true; do 
+	# Spawn several threads for each line in config
 	while IFS=, read id url data
 	do           
-		check_url "$id" "$url" "$data"
-	done < $CONFIG_FILE
-	# Poor man's solution for timer...
-	sleep 60
+		check_url "$id" "$url" "$data" &
+	done < $CONFIG_FILE	
+	# Wait for loop to adjust the metric frequency. Just a sleep in background
+	sleep $METRIC_FREQUENCY &
+	# wait for my friends the threads
+	wait
 done
 
