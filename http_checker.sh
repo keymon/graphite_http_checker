@@ -33,6 +33,12 @@ check_url() {
 	data=$1; shift
 	host=$(echo $url | sed 's|.*//||')
 
+    if [ -z "$id" -o -z "$url" -o -z "$data" ]; then
+    	echo "Wrong config syntax, some missing parameter: $id,$url,$data" >&2
+    	return 0
+    fi
+
+
 	rm -f $WORKING_DIR/$id.output $WORKING_DIR/$id.headers $WORKING_DIR/$id.http_metrics $WORKING_DIR/$id.a_entries
 
 	a_entries=$(host -t A $host 2> /dev/null | grep 'has address' | wc -l | awk '{print $1}')
