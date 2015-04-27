@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # TODO: 
 # - close descriptor if needed
@@ -12,18 +12,27 @@ GRAPHITE_HOST=localhost
 GRAPHITE_PORT=2003
 
 # IMPORTANT, METRIC_FREQUENCY should be more than TIMEOUT
-METRIC_FREQUENCY=60
+METRIC_FREQUENCY=10
 TIMEOUT=30
+
+# Graphite connection descriptor
+GRAPHITE_FD=3
+
+# Flag to exit loop
+EXIT_LOOP=0
 
 # Magic function... it just opens a TCP connection to graphite in descriptor 3
 connect_graphite() {
-	exec 3<>/dev/tcp/$GRAPHITE_HOST/$GRAPHITE_PORT
+	eval "exec $GRAPHITE_FD<>/dev/tcp/$GRAPHITE_HOST/$GRAPHITE_PORT || exit 1"
 }
 
 # Send the metrics to descriptor 3
 send_metric() {
-	#echo "local.random.diceroll 4 `date +%s`" | nc -q0 ${SERVER} ${PORT}
-	echo "$GRAPHITE_PREFIX.$1 $2 `date +%s`" | tee /tmp/debug >&3
+	echo "$GRAPHITE_PREFIX.$1 $2 `date +%s`" | tee /tmp/debug >&$GRAPHITE_FD
+	if [ ! -e $WORKING_DIR/exit -a "$?" -ne "0" ]; then
+		echo "Failed sending metric. Graphite $GRAPHITE_HOST:$GRAPHITE_PORT connection drop?"
+		touch $WORKING_DIR/exit
+	fi
 }
 
 # Main checker
@@ -37,7 +46,6 @@ check_url() {
     	echo "Wrong config syntax, some missing parameter: $id,$url,$data" >&2
     	return 0
     fi
-
 
 	rm -f $WORKING_DIR/$id.output $WORKING_DIR/$id.headers $WORKING_DIR/$id.http_metrics $WORKING_DIR/$id.a_entries
 
@@ -82,6 +90,7 @@ check_url() {
 }
 
 mkdir -p $WORKING_DIR
+rm -f $WORKING_DIR/exit
 
 # Start the connection to graphite
 connect_graphite
@@ -97,5 +106,11 @@ while true; do
 	sleep $METRIC_FREQUENCY &
 	# wait for my friends the threads
 	wait
+	# exit if something went wrong... I did not find any way to nicely send
+	# a signal when the childs fail... so I use just a file.
+	if [ -e $WORKING_DIR/exit ]; then
+		echo "Something went nuts, exiting" >&2
+		exit 1
+	fi
 done
 
