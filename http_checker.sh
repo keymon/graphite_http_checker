@@ -1,6 +1,8 @@
 #!/bin/sh
 
 WORKING_DIR=/tmp/http_checker
+CONFIG_FILE=./config
+GRAPHITE_PREFIX="http_tester"
 
 TIMEOUT=30
 
@@ -43,17 +45,26 @@ check_url() {
 	age=$(test -e $WORKING_DIR/$id.headers && cat $WORKING_DIR/$id.headers | sed -n 's/^Age: \([0-9\.]*\).*/\1/p')
 	age=${age:-0}
 
-	echo "page_fetched $page_fetched"
-	echo "string_matched $string_matched"
-	echo "succeded $succeded"
-	echo "total_time $total_time"
-	echo "a_entries $a_entries"
-	echo "age $age"
-
+	echo "$GRAPHITE_PREFIX.$id.page_fetched $page_fetched"
+	echo "$GRAPHITE_PREFIX.$id.string_matched $string_matched"
+	echo "$GRAPHITE_PREFIX.$id.succeded $succeded"
+	echo "$GRAPHITE_PREFIX.$id.total_time $total_time"
+	echo "$GRAPHITE_PREFIX.$id.a_entries $a_entries"
+	echo "$GRAPHITE_PREFIX.$id.age $age"
 
 }
 
 #check_url datasift_main http://localhost:8080 "View live example streams to see how DataSift"
 #check_url datasift_main http://datasift.com "View live example streams to see how DataSift"
-check_url datasift_main http://datasift.com "SNA enables Dell to monitor"
-mkdir -p $WORKING_DIR
+#check_url datasift_main http://datasift.com "SNA enables Dell to monitor"
+#mkdir -p $WORKING_DIR
+
+while true; do 
+	while IFS=, read id url data
+	do           
+		check_url "$id" "$url" "$data"
+	done < $CONFIG_FILE
+	# Poor man's solution for timer...
+	sleep 60
+done
+
